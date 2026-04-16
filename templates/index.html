@@ -1,0 +1,263 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <!-- Header -->
+    <div class="text-center mb-10">
+        <div class="inline-flex items-center justify-center p-3 bg-black rounded-2xl mb-4 shadow-xl">
+            <img src="/static/logo.png" alt="Logo" class="h-10 w-10">
+        </div>
+        <h1 class="text-4xl font-extrabold text-black tracking-tight mb-2">
+            SocialTranscriber
+        </h1>
+        <p class="text-gray-500 text-lg">
+            Transcribe Instagram Reels & YouTube Videos to Notion
+        </p>
+    </div>
+
+    <!-- Input Section -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
+        <form id="transcribeForm" class="space-y-4">
+            <div>
+                <label for="url" class="block text-sm font-medium text-gray-700 mb-1">Video URL</label>
+                <input type="url" name="url" id="url" required
+                    class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-black focus:border-transparent outline-none transition-all"
+                    placeholder="https://www.instagram.com/reels/... or https://youtube.com/watch?v=...">
+            </div>
+            <button type="submit" id="submitBtn"
+                class="w-full bg-black text-white font-bold py-3 px-6 rounded-xl hover:bg-gray-800 transform active:scale-[0.98] transition-all flex items-center justify-center">
+                <span>Start Transcription</span>
+                <svg id="loadingIcon" class="hidden animate-spin ml-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            </button>
+        </form>
+
+        <!-- Progress Indicator -->
+        <div id="progressContainer" class="hidden mt-6 space-y-2">
+            <div class="flex justify-between text-sm font-medium">
+                <span id="progressText" class="text-gray-600">Processing...</span>
+                <span id="progressPercent" class="text-black">0%</span>
+            </div>
+            <div class="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+                <div id="progressBar" class="bg-black h-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+            <p class="text-xs text-gray-400 mt-2 text-center">Note: Longer YouTube videos may take several minutes to process.</p>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="resultsContainer" class="space-y-4 mb-10">
+        <!-- New results will be prepended here -->
+    </div>
+</div>
+
+<!-- Result Card Template -->
+<template id="cardTemplate">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in">
+        <div class="card-header p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors">
+            <div class="flex items-center space-x-4 min-w-0">
+                <div class="p-2 bg-gray-100 rounded-lg flex-shrink-0">
+                    <svg class="h-6 w-6 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <h3 class="font-bold text-gray-900 truncate title-text">Title</h3>
+                    <p class="text-xs text-gray-500 truncate url-text">URL</p>
+                    <p class="text-sm text-gray-500 truncate preview-text">Preview...</p>
+                </div>
+            </div>
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-gray-400 transform transition-transform chevron" fill="none"
+                    viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </div>
+        </div>
+
+        <!-- Expanded Content -->
+        <div class="hidden content-body border-t border-gray-100">
+            <div class="p-4">
+                <div
+                    class="bg-gray-50 p-3 rounded text-sm text-gray-700 whitespace-pre-wrap mb-4 max-h-60 overflow-y-auto full-text">
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button
+                        class="copy-btn px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 text-gray-700">
+                        Copy
+                    </button>
+                    <button
+                        class="save-notion-btn px-3 py-1 text-sm bg-black text-white rounded hover:bg-gray-800 flex items-center">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png"
+                            class="h-4 w-4 mr-2 filter invert" alt="Notion">
+                        Save to Notion
+                    </button>
+                </div>
+                <div class="save-status mt-2 text-right text-xs font-medium hidden"></div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script>
+    document.getElementById('transcribeForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const submitBtn = document.getElementById('submitBtn');
+        const loadingIcon = document.getElementById('loadingIcon');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const progressPercent = document.getElementById('progressPercent');
+        const formData = new FormData(e.target);
+
+        submitBtn.disabled = true;
+        submitBtn.classList.add('opacity-50');
+        loadingIcon.classList.remove('hidden');
+        progressContainer.classList.remove('hidden');
+
+        // Reset progress
+        progressBar.style.width = '5%';
+        progressPercent.textContent = "5%";
+        progressText.textContent = "Initializing...";
+
+        // Simulate progress (since backend is sync)
+        let progress = 5;
+        const interval = setInterval(() => {
+            if (progress < 95) {
+                progress += Math.random() * 2;
+                if (progress > 95) progress = 95;
+                progressBar.style.width = progress + '%';
+                progressPercent.textContent = Math.floor(progress) + '%';
+                
+                if (progress > 10 && progress < 40) progressText.textContent = "Downloading Audio...";
+                else if (progress >= 40 && progress < 85) progressText.textContent = "Transcribing (this may take a while)...";
+                else if (progress >= 85) progressText.textContent = "Finalizing...";
+            }
+        }, 800);
+
+        try {
+            const response = await fetch('/transcribe', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+
+            clearInterval(interval);
+            progressBar.style.width = '100%';
+            progressPercent.textContent = '100%';
+            progressText.textContent = "Complete!";
+
+            if (response.ok) {
+                setTimeout(() => {
+                    progressContainer.classList.add('hidden');
+                    progressBar.style.width = '0%';
+                }, 1500);
+                addResultCard(result);
+                e.target.reset();
+            } else {
+                throw new Error(result.error || "Unknown error occurred on the server.");
+            }
+        } catch (error) {
+            console.error(error);
+            clearInterval(interval);
+            alert("Error: " + error.message);
+            progressText.textContent = "Failed.";
+            progressText.classList.add('text-red-500');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('opacity-50');
+            loadingIcon.classList.add('hidden');
+        }
+    };
+
+    function addResultCard(data) {
+        const template = document.getElementById('cardTemplate');
+        const clone = template.content.cloneNode(true);
+        const card = clone.querySelector('div');
+
+        card.querySelector('.title-text').textContent = data.title || "Unknown Title";
+        card.querySelector('.url-text').textContent = data.url;
+        card.querySelector('.preview-text').textContent = data.transcription.substring(0, 80) + "...";
+        card.querySelector('.full-text').textContent = data.transcription;
+
+        const header = card.querySelector('.card-header');
+        const body = card.querySelector('.content-body');
+        const chevron = card.querySelector('.chevron');
+
+        header.onclick = () => {
+            body.classList.toggle('hidden');
+            chevron.classList.toggle('rotate-180');
+        };
+
+        card.querySelector('.copy-btn').onclick = () => {
+            navigator.clipboard.writeText(data.transcription);
+            const btn = card.querySelector('.copy-btn');
+            const original = btn.textContent;
+            btn.textContent = "Copied!";
+            setTimeout(() => btn.textContent = original, 2000);
+        };
+
+        const saveBtn = card.querySelector('.save-notion-btn');
+        const saveStatus = card.querySelector('.save-status');
+        const originalBtnContent = saveBtn.innerHTML;
+
+        saveBtn.onclick = async () => {
+            saveBtn.disabled = true;
+            saveBtn.classList.add('opacity-50');
+            saveStatus.classList.remove('hidden');
+            saveStatus.textContent = "Saving to Notion...";
+
+            const formData = new FormData();
+            formData.append('url', data.url);
+            formData.append('title', data.title || "");
+            formData.append('transcription', data.transcription);
+            formData.append('database_id', data.database_id);
+
+            try {
+                const res = await fetch('/save-notion', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+
+                if (res.ok && result.status === 'success') {
+                    saveStatus.textContent = "Saved to Notion! ";
+                    saveStatus.className = "save-status mt-2 text-right text-xs font-medium text-green-600";
+                    if (result.url) {
+                        const link = document.createElement('a');
+                        link.href = result.url;
+                        link.target = '_blank';
+                        link.textContent = "Open Page";
+                        link.className = "text-blue-600 hover:underline ml-1";
+                        saveStatus.appendChild(link);
+                    }
+                    saveBtn.textContent = "Saved";
+                } else {
+                    throw new Error(result.error || "Failed");
+                }
+            } catch (err) {
+                saveStatus.textContent = "Error: " + err.message;
+                saveStatus.className = "save-status mt-2 text-right text-xs font-medium text-red-600";
+                saveBtn.disabled = false;
+                saveBtn.classList.remove('opacity-50');
+            }
+        };
+
+        const container = document.getElementById('resultsContainer');
+        container.insertBefore(clone, container.firstChild);
+        body.classList.remove('hidden');
+        chevron.classList.add('rotate-180');
+    }
+</script>
+
+<style>
+    .rotate-180 { transform: rotate(180deg); }
+    @keyframes fade-in {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
+</style>
+{% endblock %}

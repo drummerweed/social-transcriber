@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <h2 class="text-2xl font-bold mb-6 text-gray-800">Request History</h2>
+
+    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source
+                    </th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status
+                    </th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details
+                    </th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions
+                    </th>
+                </tr>
+            </thead>
+            <tbody id="history-body" class="bg-white divide-y divide-gray-200">
+                <!-- Rows will be populated by JS -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Details Modal -->
+<div id="detailsModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden"
+    style="z-index: 50;">
+    <div class="relative top-20 mx-auto p-5 border w-3/4 max-w-2xl shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-medium leading-6 text-gray-900">Request Details</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-500 hover:bg-gray-100 rounded-full p-1">
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+        <div class="mt-2 px-7 py-3">
+            <pre id="modalContent"
+                class="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap font-mono text-gray-700"></pre>
+        </div>
+        <div class="items-center px-4 py-3 flex justify-end space-x-3">
+            <button id="sendNotionBtn" onclick="sendToNotion()" class="hidden px-4 py-2 bg-black text-white text-base font-medium rounded-md shadow-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300 flex items-center">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png" class="h-4 w-4 mr-2 filter invert" alt="Notion">
+                Send to Notion
+            </button>
+            <button id="okBtn" onclick="closeModal()"
+                class="px-4 py-2 bg-blue-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="notionStatusToast" class="hidden fixed bottom-5 right-5 bg-black text-white px-6 py-3 rounded-xl shadow-xl z-50 transition-opacity duration-300">
+    <span id="toastMsg">Sending...</span>
+</div>
+
+<script>
+    function formatDate(isoString) {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        return date.toLocaleString();
+    }
+
+    function getStatusClass(status) {
+        switch (status) {
+            case 'Completed': return 'bg-green-100 text-green-800';
+            case 'Transcribed': return 'bg-blue-100 text-blue-800';
+            case 'Failed': return 'bg-red-100 text-red-800';
+            case 'Processing': return 'bg-yellow-100 text-yellow-800';
+            case 'Downloading': return 'bg-indigo-100 text-indigo-800';
+            case 'Transcribing': return 'bg-purple-100 text-purple-800';
+            case 'Saving to Notion': return 'bg-pink-100 text-pink-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    }
+
+    let currentReq = null;
+
+    function showDetails(req) {
+        currentReq = req;
+        const modal = document.getElementById('detailsModal');
+        const content = document.getElementById('modalContent');
+        
+        // Hide full transcription in the raw JSON view so it doesn't take 10 pages
+        let displayObj = { ...req };
+        if (displayObj.transcription) {
+            displayObj.transcription = displayObj.transcription.substring(0, 100) + '... (truncated for display)';
+        }
+        content.textContent = JSON.stringify(displayObj, null, 4);
+
+        const notionBtn = document.getElementById('sendNotionBtn');
+        if (req.transcription && !req.notion_url) {
+            notionBtn.classList.remove('hidden');
+        } else {
+            notionBtn.classList.add('hidden');
+        }
+
+        modal.classList.remove('hidden');
+    }
+
+    async function sendToNotion() {
+        if (!currentReq || !currentReq.transcription) return;
+        
+        const toast = document.getElementById('notionStatusToast');
+        const toastMsg = document.getElementById('toastMsg');
+        toast.classList.remove('hidden');
+        toastMsg.textContent = "Sending to Notion...";
+        closeModal();
+
+        const formData = new FormData();
+        formData.append('url', currentReq.url);
+        formData.append('title', currentReq.title || "");
+        formData.append('transcription', currentReq.transcription);
+        // database_id is omitted, letting the backend fallback to the default
+        
+        try {
+            const res = await fetch('/save-notion', { method: 'POST', body: formData });
+            const result = await res.json();
+            
+            if (res.ok && result.status === 'success') {
+                toastMsg.textContent = "Successfully saved to Notion!";
+                fetchHistory(); // Refresh
+            } else {
+                throw new Error(result.error || "Failed");
+            }
+        } catch (err) {
+            toastMsg.textContent = "Error: " + err.message;
+        }
+
+        setTimeout(() => toast.classList.add('hidden'), 4000);
+    }
+
+    async function cancelTask(reqId) {
+        if (!confirm("Are you sure you want to cancel and remove this task?")) return;
+        
+        try {
+            await fetch(`/api/history/${reqId}`, { method: 'DELETE' });
+            fetchHistory();
+        } catch (e) {
+            console.error(e);
+            alert("Failed to cancel task.");
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('detailsModal').classList.add('hidden');
+    }
+
+    // Close modal on outside click
+    window.onclick = function (event) {
+        const modal = document.getElementById('detailsModal');
+        if (event.target == modal) {
+            closeModal();
+        }
+    }
+
+    async function fetchHistory() {
+        try {
+            const response = await fetch('/api/history');
+            const history = await response.json();
+            const tbody = document.getElementById('history-body');
+            tbody.innerHTML = '';
+
+            history.forEach(req => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-gray-50 cursor-pointer transition-colors duration-150";
+                tr.onclick = () => showDetails(req);
+
+                let details = `<div class="text-sm text-gray-900 truncate w-64" title="${req.url}">${req.url}</div>`;
+                if (req.title) {
+                    details += `<div class="text-xs text-gray-500">${req.title}</div>`;
+                }
+                if (req.notion_url) {
+                    // Prevent row click when clicking the link
+                    details += `<a href="${req.notion_url}" target="_blank" onclick="event.stopPropagation()" class="text-xs text-indigo-600 hover:text-indigo-900 block mt-1">View in Notion</a>`;
+                }
+                if (req.error) {
+                    details += `<div class="text-xs text-red-600 truncate w-64 mt-1" title="${req.error}">${req.error}</div>`;
+                }
+
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${formatDate(req.timestamp)}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        ${req.source}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(req.status)}">
+                            ${req.status}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4">
+                        ${details}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="event.stopPropagation(); cancelTask('${req.id}')" class="text-gray-400 hover:text-red-600 transition-colors" title="Cancel & Remove">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (error) {
+            console.error('Error fetching history:', error);
+        }
+    }
+
+    // Initial load
+    fetchHistory();
+
+    // Poll every 5 seconds
+    setInterval(fetchHistory, 5000);
+</script>
+{% endblock %}

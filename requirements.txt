@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+yt-dlp
+numpy<2.0.0
+torch
+openai-whisper
+notion-client
+jinja2
+python-multipart
+ffmpeg-python

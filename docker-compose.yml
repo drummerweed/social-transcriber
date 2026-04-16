@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  social-transcriber:
+    build: .
+    container_name: social-transcriber
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.json:/app/config.json
+      - ./downloads:/app/downloads
+    networks:
+      - n8n-monitoring-network
+
+networks:
+  n8n-monitoring-network:
+    external: true

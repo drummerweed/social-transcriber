@@ -1,0 +1,71 @@
+{
+    "name": "IG Transcriber Proxy",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "ig-transcribe",
+                "options": {}
+            },
+            "name": "Incoming Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ],
+            "webhookId": "ig-transcriber-webhook"
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "http://192.168.6.50:8000/webhook",
+                "authentication": "none",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "x-api-token",
+                            "value": "wh_sec_GeneratedToken12345"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "contentType": "json",
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "url",
+                            "value": "={{$json.body.url}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Send to Transcriber",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                450,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Incoming Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Send to Transcriber",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

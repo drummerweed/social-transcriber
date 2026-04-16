@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.env
+config.json
+cookies.txt
+downloads/
+server.log
+.DS_Store
+*.mp3
+*.webm
+*.wav
