@@ -2,19 +2,55 @@ from fastapi import FastAPI, Request, Form, BackgroundTasks, Header, HTTPExcepti
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 import os
 import asyncio
 import traceback
+from multiprocessing import Process, Queue
 
 # Import modules
-from downloader import download_audio
+from downloader import download_audio, download_video_file
 from transcriber import transcribe_audio
 from notion_integration import create_notion_page, get_databases
 from config_manager import config_manager
 from history_manager import history_manager
+
+def _transcribe_worker(audio_path, queue):
+    try:
+        from transcriber import transcribe_audio
+        result = transcribe_audio(audio_path)
+        queue.put({"status": "success", "text": result})
+    except Exception as e:
+        queue.put({"status": "error", "error": str(e)})
+
+async def run_killable_transcription(audio_path, req_id):
+    queue = Queue()
+    p = Process(target=_transcribe_worker, args=(audio_path, queue))
+    p.start()
+    
+    while p.is_alive():
+        if req_id in history_manager.cancelled_tasks:
+            print(f'Task {req_id} cancelled during transcription. Terminating process.')
+            p.terminate()
+            p.join()
+            if os.path.exists(audio_path):
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+            raise Exception("Cancelled by user")
+        await asyncio.sleep(0.5)
+        
+    p.join()
+    if not queue.empty():
+        res = queue.get()
+        if res["status"] == "success":
+            return res["text"]
+        else:
+            raise Exception(res["error"])
+    raise Exception("Transcription process died unexpectedly")
 
 app = FastAPI(title='SocialTranscriber')
 
@@ -30,6 +66,10 @@ async def read_root(request: Request):
 @app.get('/status', response_class=HTMLResponse)
 async def read_status(request: Request):
     return templates.TemplateResponse(request, 'status.html')
+
+@app.get('/downloads', response_class=HTMLResponse)
+async def read_downloads(request: Request):
+    return templates.TemplateResponse(request, 'downloads.html')
 
 @app.get('/settings', response_class=HTMLResponse)
 async def read_settings(request: Request):
@@ -92,22 +132,12 @@ async def transcribe(
         
         # 1. Download
         history_manager.update_request(req_id, 'Downloading')
-        audio_path, title = await run_in_threadpool(download_audio, url)
+        audio_path, title = await run_in_threadpool(download_audio, url, req_id)
         
-        if req_id in history_manager.cancelled_tasks:
-            history_manager.cancelled_tasks.remove(req_id)
-            print(f'Task {req_id} cancelled during /transcribe.')
-            return JSONResponse(content={'status': 'cancelled'}, status_code=200)
-
         # 2. Transcribe
         history_manager.update_request(req_id, 'Transcribing', title=title)
-        transcription = await run_in_threadpool(transcribe_audio, audio_path)
+        transcription = await run_killable_transcription(audio_path, req_id)
         
-        if req_id in history_manager.cancelled_tasks:
-            history_manager.cancelled_tasks.remove(req_id)
-            print(f'Task {req_id} cancelled during /transcribe.')
-            return JSONResponse(content={'status': 'cancelled'}, status_code=200)
-
         history_manager.update_request(req_id, 'Transcribed', title=title, transcription=transcription)
         
         return {
@@ -118,11 +148,50 @@ async def transcribe(
             'database_id': database_id
         }
     except Exception as e:
+        if req_id in history_manager.cancelled_tasks:
+            history_manager.cancelled_tasks.discard(req_id)
+            print(f'Task {req_id} cancelled during /transcribe.')
+            return JSONResponse(content={'status': 'cancelled'}, status_code=200)
+            
         error_msg = f'{str(e)}'
         print(f'Error: {error_msg}')
         traceback.print_exc()
         history_manager.update_request(req_id, 'Failed', error=error_msg)
         return JSONResponse(content={'error': error_msg}, status_code=500)
+
+@app.post('/api/download')
+async def api_download(
+    background_tasks: BackgroundTasks,
+    url: str = Form(...),
+    quality: str = Form('best')
+):
+    try:
+        video_path, title = await run_in_threadpool(download_video_file, url, quality)
+        
+        safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+        if not safe_title:
+            safe_title = "video"
+            
+        ext = os.path.splitext(video_path)[1]
+        filename = f"{safe_title}{ext}"
+        
+        def remove_file(path: str):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception as e:
+                print(f"Failed to remove downloaded file {path}: {e}")
+                
+        background_tasks.add_task(remove_file, video_path)
+        
+        return FileResponse(
+            path=video_path,
+            filename=filename,
+            media_type='application/octet-stream'
+        )
+    except Exception as e:
+        error_msg = str(e)
+        return HTMLResponse(content=f"<script>alert('Error: {error_msg}');</script>", status_code=500)
 
 @app.post('/save-notion')
 async def save_notion(
@@ -178,21 +247,11 @@ async def process_webhook(url: str, token: str, database_id: str, req_id: str):
         
         # 1. Download
         history_manager.update_request(req_id, 'Downloading')
-        audio_path, title = await run_in_threadpool(download_audio, url)
-        
-        if req_id in history_manager.cancelled_tasks:
-            history_manager.cancelled_tasks.remove(req_id)
-            print(f'Task {req_id} cancelled.')
-            return
+        audio_path, title = await run_in_threadpool(download_audio, url, req_id)
 
         # 2. Transcribe
         history_manager.update_request(req_id, 'Transcribing', title=title)
-        transcription = await run_in_threadpool(transcribe_audio, audio_path)
-        
-        if req_id in history_manager.cancelled_tasks:
-            history_manager.cancelled_tasks.remove(req_id)
-            print(f'Task {req_id} cancelled.')
-            return
+        transcription = await run_killable_transcription(audio_path, req_id)
 
         # Explicitly save transcription in case they want to review or manually send it later
         history_manager.update_request(req_id, 'Transcribed', title=title, transcription=transcription)
@@ -207,6 +266,11 @@ async def process_webhook(url: str, token: str, database_id: str, req_id: str):
             history_manager.update_request(req_id, 'Failed', error='Failed to create Notion page')
 
     except Exception as e:
+        if req_id in history_manager.cancelled_tasks:
+            history_manager.cancelled_tasks.discard(req_id)
+            print(f'Task {req_id} cancelled during webhook.')
+            return
+
         error_msg = str(e)
         print(f'Webhook Error: {error_msg}')
         history_manager.update_request(req_id, 'Failed', error=error_msg)

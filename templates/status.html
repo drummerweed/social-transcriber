@@ -44,6 +44,10 @@
                 class="bg-gray-50 p-4 rounded text-sm overflow-auto max-h-96 whitespace-pre-wrap font-mono text-gray-700"></pre>
         </div>
         <div class="items-center px-4 py-3 flex justify-end space-x-3">
+            <button id="downloadVideoBtn" onclick="downloadVideoFromModal()" class="hidden px-4 py-2 bg-indigo-600 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-300 flex items-center">
+                <svg class="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                <span id="downloadBtnText">Download</span>
+            </button>
             <button id="sendNotionBtn" onclick="sendToNotion()" class="hidden px-4 py-2 bg-black text-white text-base font-medium rounded-md shadow-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-300 flex items-center">
                 <img src="https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png" class="h-4 w-4 mr-2 filter invert" alt="Notion">
                 Send to Notion
@@ -101,6 +105,16 @@
             notionBtn.classList.add('hidden');
         }
 
+        const downloadBtn = document.getElementById('downloadVideoBtn');
+        const downloadBtnText = document.getElementById('downloadBtnText');
+        if (req.url && (req.status === 'Completed' || req.status === 'Transcribed' || req.status === 'Failed' || req.status === 'Downloading' || req.status === 'Transcribing' || req.status === 'Saving to Notion')) {
+            downloadBtn.classList.remove('hidden');
+            let isYouTube = req.url.includes('youtube.com') || req.url.includes('youtu.be');
+            downloadBtnText.textContent = isYouTube ? 'Download (720p)' : 'Download Video';
+        } else {
+            downloadBtn.classList.add('hidden');
+        }
+
         modal.classList.remove('hidden');
     }
 
@@ -146,6 +160,51 @@
             console.error(e);
             alert("Failed to cancel task.");
         }
+    }
+
+    function downloadVideoFromModal() {
+        if (!currentReq || !currentReq.url) return;
+        
+        const btn = document.getElementById('downloadVideoBtn');
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<svg class="animate-spin h-4 w-4 mr-2 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Downloading...</span>`;
+        btn.disabled = true;
+
+        let quality = 'best';
+        let isYouTube = currentReq.url.includes('youtube.com') || currentReq.url.includes('youtu.be');
+        if (isYouTube) quality = '720';
+
+        const iframeName = `download_iframe_modal_${Date.now()}`;
+        const iframe = document.createElement('iframe');
+        iframe.name = iframeName;
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/api/download';
+        form.target = iframeName;
+        
+        const urlInput = document.createElement('input');
+        urlInput.type = 'hidden';
+        urlInput.name = 'url';
+        urlInput.value = currentReq.url;
+        
+        const qualityInput = document.createElement('input');
+        qualityInput.type = 'hidden';
+        qualityInput.name = 'quality';
+        qualityInput.value = quality;
+        
+        form.appendChild(urlInput);
+        form.appendChild(qualityInput);
+        document.body.appendChild(form);
+        form.submit();
+
+        setTimeout(() => {
+            btn.innerHTML = originalHtml;
+            btn.disabled = false;
+            document.body.removeChild(form);
+        }, 3000);
     }
 
     function closeModal() {
