@@ -1,13 +1,18 @@
-version: '3.8'
 services:
   social-transcriber:
-    build: .
+    build:
+      context: .
+      # Never pull base images from Docker Hub - use local cache only
+      # This avoids TLS handshake failures when VPN blocks Docker Hub
+    pull_policy: never
+    image: socialtranscriber-social-transcriber:latest
     container_name: social-transcriber
     restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
       - ./config.json:/app/config.json
+      - ./cookies.txt:/app/cookies.txt
       - ./downloads:/app/downloads
     networks:
       - n8n-monitoring-network
