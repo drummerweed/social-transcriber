@@ -53,6 +53,9 @@ async def create_notion_page(database_id: str, url: str, transcription: str, tok
         title = f"Social Transcription - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
     try:
+        # Check if URL is a valid http/https link
+        is_http_url = url.startswith("http://") or url.startswith("https://")
+
         # Construct the page properties
         properties = {
             "Subject": {
@@ -63,29 +66,31 @@ async def create_notion_page(database_id: str, url: str, transcription: str, tok
                         }
                     }
                 ]
-            },
-            "URL": {
-                "url": url
             }
         }
         
+        if is_http_url:
+            properties["URL"] = {
+                "url": url
+            }
+        
         # Add URL if possible, otherwise just append to body
-        # (Handling flexible schemas is complex, keeping it simple for now)
+        source_rich_text = {
+            "type": "text",
+            "text": {
+                "content": f"Source: {url}"
+            }
+        }
+        
+        if is_http_url:
+            source_rich_text["text"]["link"] = {"url": url}
 
         children = [
             {
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [
-                        {
-                             "type": "text", 
-                             "text": { 
-                                 "content": f"Source: {url}",
-                                 "link": {"url": url}
-                             } 
-                        }
-                    ]
+                    "rich_text": [source_rich_text]
                 }
             },
              {

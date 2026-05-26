@@ -9,7 +9,7 @@ except Exception as e:
     print(f"Warning: Could not load Whisper model at startup. It will be loaded on first request. {e}")
     model = None
 
-def transcribe_audio(audio_path: str) -> str:
+def transcribe_audio(audio_path: str, delete_after: bool = True) -> str:
     """
     Transcribes the audio file at the given path using OpenAI Whisper.
     Returns the transcribed text.
@@ -35,10 +35,11 @@ def transcribe_audio(audio_path: str) -> str:
         raise e
     finally:
         # Cleanup: remove the audio file after transcription attempt
-        try:
-            if os.path.exists(audio_path):
-                os.remove(audio_path)
-        except OSError as err:
-            print(f"Error removing file {audio_path}: {err}")
+        if delete_after:
+            try:
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+            except OSError as err:
+                print(f"Error removing file {audio_path}: {err}")
 
     return result["text"]

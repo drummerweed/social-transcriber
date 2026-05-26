@@ -4,20 +4,18 @@ import uuid
 
 from config_manager import config_manager
 
-DOWNLOAD_DIR = "downloads"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
 def download_audio(url: str) -> tuple[str, str]:
     """
     Downloads audio from the given URL using yt-dlp.
     Returns a tuple containing (absolute_path_to_audio_file, video_title).
     """
+    storage_dir = config_manager.get_storage_dir()
     filename = f"{uuid.uuid4()}"
     
     # Basic options
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(DOWNLOAD_DIR, filename + '.%(ext)s'),
+        'outtmpl': os.path.join(storage_dir, filename + '.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
         # Use a real browser User-Agent to avoid simple blocking
@@ -35,9 +33,14 @@ def download_audio(url: str) -> tuple[str, str]:
             title = info.get('title', 'Unknown Title')
         
         # yt-dlp appends the extension dynamically
-        for f in os.listdir(DOWNLOAD_DIR):
+        for f in os.listdir(storage_dir):
             if f.startswith(filename) and not f.endswith('.part'):
-                return os.path.abspath(os.path.join(DOWNLOAD_DIR, f)), title
+                audio_path = os.path.abspath(os.path.join(storage_dir, f))
+                try:
+                    os.chmod(audio_path, 0o666)
+                except Exception as e:
+                    print(f"Error setting permissions on downloaded file {audio_path}: {e}")
+                return audio_path, title
                 
         raise FileNotFoundError(f"Downloaded file not found for {url}")
             

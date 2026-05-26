@@ -29,7 +29,8 @@ class ConfigManager:
             "NOTION_TOKEN": "notion_token",
             "NOTION_DATABASE_ID": "default_database_id",
             "WEBHOOK_TOKEN": "webhook_token",
-            "COOKIES_FILE": "cookies_file"
+            "COOKIES_FILE": "cookies_file",
+            "STORAGE_DIR": "storage_dir"
         }
         
         for env_key, config_key in env_mapping.items():
@@ -51,4 +52,24 @@ class ConfigManager:
     def get(self, key, default=None):
         return self.config.get(key, default)
 
+    def get_storage_dir(self):
+        storage_dir = self.get("storage_dir")
+        if not storage_dir:
+            # Check if the 5TB external drive or pool is mounted
+            if os.path.exists("/mnt/nas_drive2"):
+                storage_dir = "/mnt/nas_drive2/SocialTranscription_Storage"
+            elif os.path.exists("/mnt/nas_pool"):
+                storage_dir = "/mnt/nas_pool/SocialTranscription_Storage"
+            else:
+                # Fallback to local project downloads directory
+                storage_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "downloads"))
+        
+        os.makedirs(storage_dir, exist_ok=True)
+        try:
+            os.chmod(storage_dir, 0o777)
+        except Exception as e:
+            print(f"Error setting permissions on storage directory {storage_dir}: {e}")
+        return os.path.abspath(storage_dir)
+
 config_manager = ConfigManager()
+

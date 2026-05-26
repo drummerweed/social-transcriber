@@ -14,6 +14,8 @@ services:
       - ./config.json:/app/config.json
       - ./cookies.txt:/app/cookies.txt
       - ./downloads:/app/downloads
+      - ./history.json:/app/history.json
+      - /mnt:/mnt
     networks:
       - n8n-monitoring-network
 
