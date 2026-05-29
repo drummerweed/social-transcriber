@@ -10,11 +10,14 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./config.json:/app/config.json
       - ./cookies.txt:/app/cookies.txt
       - ./downloads:/app/downloads
       - ./history.json:/app/history.json
+      - ./templates:/app/templates
+      - ./static:/app/static
       - /mnt:/mnt
     networks:
       - n8n-monitoring-network
